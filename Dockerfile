@@ -1,14 +1,15 @@
-FROM	alpine:3.10
+FROM	alpine:3.15
 
 WORKDIR	/
 
 RUN	apk update && apk add --no-cache \
 	curl git \
 	automake autoconf libtool gcc musl-dev make linux-headers \
-	gettext openssl-dev libxml2-dev lz4-dev libproxy-dev \
-	py2-lxml py2-requests py2-pip \
+	gettext openssl-dev libxml2-dev lz4-dev libproxy-dev python3-dev \
+        libffi-dev cargo\
+	py3-lxml py3-requests py3-pip \
 	&& rm -rf /var/cache/apk/*
-RUN  pip install pyotp
+RUN  pip3 install pyotp fido2
 
 
 RUN	mkdir -p /usr/local/sbin
