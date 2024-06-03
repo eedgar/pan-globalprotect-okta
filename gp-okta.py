@@ -31,6 +31,8 @@
 from __future__ import print_function
 import argparse, base64, getpass, io, os, re, shlex, signal, subprocess, sys, tempfile, time
 import requests
+import ssl
+import urllib3
 from lxml import etree
 
 if sys.version_info >= (3,):
@@ -411,15 +413,45 @@ def _send_req_post(conf, r, name, can_fail=False):
 		err('{0}.request failed.\n{1}'.format(name, rr))
 	dbg(conf.debug, '{0}.response'.format(name), rr)
 
+class CustomHttpAdapter (requests.adapters.HTTPAdapter):
+    # "Transport adapter" that allows us to use custom ssl_context.
+
+    def __init__(self, ssl_context=None, **kwargs):
+        self.ssl_context = ssl_context
+        super().__init__(**kwargs)
+
+    def init_poolmanager(self, connections, maxsize, block=False):
+        self.poolmanager = urllib3.poolmanager.PoolManager(
+            num_pools=connections, maxsize=maxsize,
+            block=block, ssl_context=self.ssl_context)
+
+
+def get_legacy_session():
+    ctx = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
+    ctx.options |= 0x4  # OP_LEGACY_SERVER_CONNECT
+    session = requests.session()
+    session.mount('https://', CustomHttpAdapter(ctx))
+    return session
+
 def send_req(conf, dest, name, url, data, get=False, expected_url=None, can_fail=False):
 	# type: (Conf, str, str, str, Dict[str, Any], bool, Optional[str], bool) -> Tuple[int, requests.structures.CaseInsensitiveDict[str], str]
 	v = conf.get_verify(dest)
 	_send_req_pre(conf, name, url, data, expected_url, v)
 	s = conf.get_session(dest)
 	if get:
-		r = s.get(url, verify=v)
+
+		try:
+			r = s.get(url, verify=v)
+		except Exception as e:
+			if 'UNSAFE_LEGACY_RENEGOTIATION_DISABLED' in str(e):
+				import pdb;pdb.set_trace()
+				r = get_legacy_session().get(url)
 	else:
-		r = s.post(url, data=data, verify=v)
+		try:
+		        r = s.post(url, data=data, verify=v)
+		except Exception as e:
+			if 'UNSAFE_LEGACY_RENEGOTIATION_DISABLED' in str(e):
+				r = get_legacy_session().post(url, data=data)
 	_send_req_post(conf, r, name, can_fail)
 	return r.status_code, r.headers, r.text
 
